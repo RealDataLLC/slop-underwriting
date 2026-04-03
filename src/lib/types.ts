@@ -212,11 +212,38 @@ export interface DealSchema {
     noi_year1: number | null;
     noi_source: "Seller" | "Broker" | "Calculated" | null;
   };
+  tenants?: TenantEntry[];
   extraction_metadata: {
     confidence_scores: Record<string, number>;
     flagged_fields: string[];
     extraction_model: string;
     extraction_timestamp: string;
+  };
+}
+
+export interface TenantEntry {
+  id: string;
+  tenant: {
+    name: string | null;
+    parent_company: string | null;
+    concept_type: string | null;
+    credit_rating_moodys: string | null;
+    credit_rating_sp: string | null;
+    is_corporate_guarantee: boolean | null;
+    franchisee_operator: string | null;
+  };
+  lease: {
+    type: LeaseType | null;
+    is_absolute_nnn: boolean | null;
+    suite: string | null;
+    gla_sf: number | null;
+    commencement_date: string | null;
+    expiration_date: string | null;
+    remaining_term_years: number | null;
+    options: LeaseOption[];
+    base_rent_annual: number | null;
+    rent_per_sf: number | null;
+    rent_bumps: RentBump[];
   };
 }
 
@@ -258,6 +285,42 @@ export interface AssumptionOverrides {
     base: { exit_cap_rate: number; hold_period_years: number };
     bull: { exit_cap_rate: number; hold_period_years: number };
   };
+  debt?: DebtAssumptions;
+  market_rent_growth_pct?: number;
+}
+
+export interface DebtAssumptions {
+  loan_enabled: boolean;
+  ltv_pct: number;
+  dscr_constraint: number;
+  interest_rate: number;
+  amortization_years: number;
+  loan_term_years: number;
+  io_period_years: number;
+  dscr_covenant: number;
+}
+
+export interface DebtScheduleYear {
+  year: number;
+  beginning_balance: number;
+  interest: number;
+  principal: number;
+  total_debt_service: number;
+  ending_balance: number;
+  is_io_period: boolean;
+  dscr: number;
+  dscr_below_covenant: boolean;
+}
+
+export interface DebtSummary {
+  loan_amount_ltv: number;
+  loan_amount_dscr: number;
+  loan_amount_final: number;
+  equity_required: number;
+  ltv_actual: number;
+  debt_yield: number;
+  leveraged_irr: number | null;
+  leveraged_equity_multiple: number;
 }
 
 export interface RentScheduleYear {
@@ -269,6 +332,21 @@ export interface RentScheduleYear {
   effective_gross_income: number;
   leasing_costs: number;
   lease_status: "in_place" | "option_period" | "vacant_downtime" | "releasing" | "re_leased";
+  tenant_details?: TenantRentYear[];
+  market_rent_psf?: number;
+}
+
+export interface TenantRentYear {
+  tenant_id: string;
+  tenant_name: string;
+  gla_sf: number;
+  scheduled_rent: number;
+  rent_per_sf: number;
+  bump_applied: string | null;
+  vacancy_loss: number;
+  effective_gross_income: number;
+  leasing_costs: number;
+  lease_status: string;
 }
 
 export interface CashFlowYear {
@@ -282,6 +360,21 @@ export interface CashFlowYear {
   noi: number;
   cumulative_noi: number;
   lease_status: string;
+  // Phase 2: Debt + DSCR
+  debt_service?: number;
+  cash_after_debt_service?: number;
+  dscr?: number;
+  dscr_below_covenant?: boolean;
+  // Phase 3: Reimbursements
+  cam_reimbursement?: number;
+  tax_reimbursement?: number;
+  insurance_reimbursement?: number;
+  total_reimbursements?: number;
+  reimbursement_admin_fee?: number;
+  gross_up_vacancy_cost?: number;
+  // Phase 5: Scheduled CapEx
+  scheduled_capex?: number;
+  total_capex?: number;
 }
 
 export interface ExitAnalysis {
@@ -290,6 +383,9 @@ export interface ExitAnalysis {
   net_proceeds: number;
   equity_multiple: number;
   unleveraged_irr: number;
+  leveraged_irr?: number | null;
+  leveraged_equity_multiple?: number;
+  loan_payoff_at_exit?: number;
 }
 
 export interface SensitivityGrid {
@@ -297,6 +393,8 @@ export interface SensitivityGrid {
   exit_cap_rates: number[];
   irr_matrix: number[][];
   em_matrix: number[][];
+  leveraged_irr_matrix?: number[][];
+  leveraged_em_matrix?: number[][];
 }
 
 export interface PricingOutput {
@@ -304,6 +402,30 @@ export interface PricingOutput {
   walk_away_price: number;
   upside_price: number | null;
   cap_rate_sensitivity: { cap_rate: number; price: number }[];
+}
+
+export interface AbsorptionAssumptions {
+  enabled: boolean;
+  vacant_suites: VacantSuite[];
+  stabilized_occupancy_pct: number;
+}
+
+export interface VacantSuite {
+  suite_id: string;
+  gla_sf: number;
+  absorption_month: number;
+  lease_up_months: number;
+  market_rent_psf: number;
+  lease_term_years: number;
+  ti_psf: number;
+  lc_pct: number;
+  rent_bumps_pct: number;
+}
+
+export interface ScheduledCapex {
+  description: string;
+  year: number;
+  cost: number;
 }
 
 export interface UnderwritingOutput {
@@ -318,6 +440,10 @@ export interface UnderwritingOutput {
     market_high: number | null;
     assessment: "tight" | "fair" | "wide" | null;
   } | null;
+  debt_schedule?: DebtScheduleYear[];
+  debt_summary?: DebtSummary;
+  walt?: number;
+  tenant_count?: number;
 }
 
 export interface RiskFlag {

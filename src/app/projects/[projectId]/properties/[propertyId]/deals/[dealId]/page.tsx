@@ -779,6 +779,19 @@ function AssumptionsEditor({
       renewal_probability: 70,
       ti_psf: 0,
       lc_pct: 4,
+      // Debt
+      debt_enabled: false,
+      debt_ltv_pct: 65,
+      debt_interest_rate: 5.5,
+      debt_amortization_years: 30,
+      debt_loan_term_years: 10,
+      debt_io_period_years: 0,
+      debt_dscr_constraint: 1.25,
+      debt_dscr_covenant: 1.25,
+      // Market Rent Growth
+      market_rent_growth_pct: 3.0,
+      // Scheduled CapEx
+      scheduled_capex: [] as {description: string; year: number; cost: number}[],
     };
   });
 
@@ -793,6 +806,8 @@ function AssumptionsEditor({
       if (data?.assumption_overrides) {
         const o = data.assumption_overrides;
         const r = o.releasing ?? {};
+        const debt = o.debt ?? {};
+        const capex = o.scheduled_capex ?? [];
         setOverrides({
           hold_period_years: o.hold_period_years ?? 5,
           exit_cap_rate_spread_bps: o.exit_cap_rate_spread_bps ?? 50,
@@ -806,6 +821,16 @@ function AssumptionsEditor({
           renewal_probability: +((r.renewal_probability ?? 0.7) * 100).toFixed(0),
           ti_psf: r.ti_psf ?? 0,
           lc_pct: +((r.lc_pct ?? 0.04) * 100).toFixed(1),
+          debt_enabled: debt.loan_enabled ?? false,
+          debt_ltv_pct: +((debt.ltv_pct ?? 0.65) * 100).toFixed(1),
+          debt_interest_rate: +((debt.interest_rate ?? 0.055) * 100).toFixed(1),
+          debt_amortization_years: debt.amortization_years ?? 30,
+          debt_loan_term_years: debt.loan_term_years ?? 10,
+          debt_io_period_years: debt.io_period_years ?? 0,
+          debt_dscr_constraint: debt.dscr_constraint ?? 1.25,
+          debt_dscr_covenant: debt.dscr_covenant ?? 1.25,
+          market_rent_growth_pct: +((o.market_rent_growth_pct ?? 0.03) * 100).toFixed(1),
+          scheduled_capex: capex,
         });
       }
     })();
@@ -832,6 +857,18 @@ function AssumptionsEditor({
         ti_psf: overrides.ti_psf,
         lc_pct: overrides.lc_pct / 100,
       },
+      debt: {
+        loan_enabled: overrides.debt_enabled,
+        ltv_pct: overrides.debt_ltv_pct / 100,
+        interest_rate: overrides.debt_interest_rate / 100,
+        amortization_years: overrides.debt_amortization_years,
+        loan_term_years: overrides.debt_loan_term_years,
+        io_period_years: overrides.debt_io_period_years,
+        dscr_constraint: overrides.debt_dscr_constraint,
+        dscr_covenant: overrides.debt_dscr_covenant,
+      },
+      market_rent_growth_pct: overrides.market_rent_growth_pct / 100,
+      scheduled_capex: overrides.scheduled_capex,
     };
     const { error } = await supabase
       .from("uw_deals")
@@ -992,6 +1029,148 @@ function AssumptionsEditor({
                 />
               </div>
             </div>
+          </div>
+
+          {/* Debt Assumptions */}
+          <div className="border-t border-border pt-4 mt-2">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-semibold text-muted uppercase tracking-wider">Debt Modeling</h4>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={overrides.debt_enabled}
+                  onChange={(e) => setOverrides((p) => ({ ...p, debt_enabled: e.target.checked }))}
+                  className="rounded border-border"
+                />
+                Enable
+              </label>
+            </div>
+            {overrides.debt_enabled && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs text-muted mb-1">LTV (%)</label>
+                  <input type="number" step="0.1" min={0} max={100} value={overrides.debt_ltv_pct}
+                    onChange={(e) => setOverrides((p) => ({ ...p, debt_ltv_pct: parseFloat(e.target.value) || 0 }))}
+                    className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-accent/30" />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">Interest Rate (%)</label>
+                  <input type="number" step="0.1" min={0} max={20} value={overrides.debt_interest_rate}
+                    onChange={(e) => setOverrides((p) => ({ ...p, debt_interest_rate: parseFloat(e.target.value) || 0 }))}
+                    className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-accent/30" />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">Amortization (yrs)</label>
+                  <input type="number" step="1" min={5} max={40} value={overrides.debt_amortization_years}
+                    onChange={(e) => setOverrides((p) => ({ ...p, debt_amortization_years: parseInt(e.target.value) || 30 }))}
+                    className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-accent/30" />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">Loan Term (yrs)</label>
+                  <input type="number" step="1" min={1} max={30} value={overrides.debt_loan_term_years}
+                    onChange={(e) => setOverrides((p) => ({ ...p, debt_loan_term_years: parseInt(e.target.value) || 10 }))}
+                    className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-accent/30" />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">IO Period (yrs)</label>
+                  <input type="number" step="1" min={0} max={10} value={overrides.debt_io_period_years}
+                    onChange={(e) => setOverrides((p) => ({ ...p, debt_io_period_years: parseInt(e.target.value) || 0 }))}
+                    className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-accent/30" />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">DSCR Constraint</label>
+                  <input type="number" step="0.05" min={1} max={3} value={overrides.debt_dscr_constraint}
+                    onChange={(e) => setOverrides((p) => ({ ...p, debt_dscr_constraint: parseFloat(e.target.value) || 1.25 }))}
+                    className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-accent/30" />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">DSCR Covenant</label>
+                  <input type="number" step="0.05" min={1} max={3} value={overrides.debt_dscr_covenant}
+                    onChange={(e) => setOverrides((p) => ({ ...p, debt_dscr_covenant: parseFloat(e.target.value) || 1.25 }))}
+                    className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-accent/30" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Market Rent Growth */}
+          <div className="border-t border-border pt-4 mt-2">
+            <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Market Rent Growth</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-xs text-muted mb-1">Annual Growth (%)</label>
+                <input type="number" step="0.1" min={0} max={10} value={overrides.market_rent_growth_pct}
+                  onChange={(e) => setOverrides((p) => ({ ...p, market_rent_growth_pct: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-accent/30" />
+              </div>
+            </div>
+          </div>
+
+          {/* Scheduled CapEx */}
+          <div className="border-t border-border pt-4 mt-2">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-semibold text-muted uppercase tracking-wider">Scheduled CapEx</h4>
+              <button
+                onClick={() => setOverrides((p) => ({
+                  ...p,
+                  scheduled_capex: [...p.scheduled_capex, { description: "", year: 1, cost: 0 }],
+                }))}
+                className="text-xs text-accent hover:underline"
+              >
+                + Add Item
+              </button>
+            </div>
+            {overrides.scheduled_capex.length > 0 && (
+              <div className="space-y-2">
+                {overrides.scheduled_capex.map((item, idx) => (
+                  <div key={idx} className="grid grid-cols-[1fr_80px_120px_32px] gap-2 items-end">
+                    <div>
+                      <label className="block text-xs text-muted mb-1">Description</label>
+                      <input type="text" value={item.description}
+                        onChange={(e) => {
+                          const updated = [...overrides.scheduled_capex];
+                          updated[idx] = { ...updated[idx], description: e.target.value };
+                          setOverrides((p) => ({ ...p, scheduled_capex: updated }));
+                        }}
+                        className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-accent/30" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-muted mb-1">Year</label>
+                      <input type="number" min={1} max={30} value={item.year}
+                        onChange={(e) => {
+                          const updated = [...overrides.scheduled_capex];
+                          updated[idx] = { ...updated[idx], year: parseInt(e.target.value) || 1 };
+                          setOverrides((p) => ({ ...p, scheduled_capex: updated }));
+                        }}
+                        className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-accent/30" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-muted mb-1">Cost ($)</label>
+                      <input type="number" min={0} step="1000" value={item.cost}
+                        onChange={(e) => {
+                          const updated = [...overrides.scheduled_capex];
+                          updated[idx] = { ...updated[idx], cost: parseFloat(e.target.value) || 0 };
+                          setOverrides((p) => ({ ...p, scheduled_capex: updated }));
+                        }}
+                        className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-accent/30" />
+                    </div>
+                    <button
+                      onClick={() => {
+                        const updated = overrides.scheduled_capex.filter((_, i) => i !== idx);
+                        setOverrides((p) => ({ ...p, scheduled_capex: updated }));
+                      }}
+                      className="p-1.5 text-muted hover:text-red-600 rounded-md hover:bg-red-50 transition-colors mb-0.5"
+                      title="Remove"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {overrides.scheduled_capex.length === 0 && (
+              <p className="text-xs text-muted">No scheduled capital expenditures. Click &quot;+ Add Item&quot; to add.</p>
+            )}
           </div>
 
           <div className="flex justify-end">

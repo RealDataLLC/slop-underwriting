@@ -37,6 +37,8 @@ import type {
   ExitAnalysis,
   SensitivityGrid,
   PricingOutput,
+  DebtScheduleYear,
+  DebtSummary,
 } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -93,6 +95,12 @@ interface LocalAssumptions {
   vacancy_rate: number;
   mgmt_fee_pct: number;
   capex_per_sf: number;
+  // Debt
+  debt_enabled: boolean;
+  debt_ltv_pct: number;
+  debt_interest_rate: number;
+  // Market Rent Growth
+  market_rent_growth_pct: number;
 }
 
 // ─── Main Page Component ─────────────────────────────────────────────────────
@@ -112,7 +120,7 @@ export default function ProFormaPage() {
   const [version, setVersion] = useState<UwVersion | null>(null);
 
   // Sensitivity grid toggle
-  const [sensitivityMode, setSensitivityMode] = useState<"irr" | "em">("irr");
+  const [sensitivityMode, setSensitivityMode] = useState<"irr" | "em" | "lev_irr" | "lev_em">("irr");
 
   // Local assumption state
   const [assumptions, setAssumptions] = useState<LocalAssumptions>({
@@ -124,6 +132,10 @@ export default function ProFormaPage() {
     vacancy_rate: 0,
     mgmt_fee_pct: 0,
     capex_per_sf: 0,
+    debt_enabled: false,
+    debt_ltv_pct: 65,
+    debt_interest_rate: 5.5,
+    market_rent_growth_pct: 3.0,
   });
 
   const fetchData = useCallback(async () => {
@@ -182,6 +194,10 @@ export default function ProFormaPage() {
           vacancy_rate: +((a.vacancy_rate ?? 0) * 100).toFixed(1),
           mgmt_fee_pct: +((a.mgmt_fee_pct ?? 0) * 100).toFixed(1),
           capex_per_sf: a.capex_per_sf ?? 0,
+          debt_enabled: a.debt?.loan_enabled ?? false,
+          debt_ltv_pct: +((a.debt?.ltv_pct ?? 0.65) * 100).toFixed(1),
+          debt_interest_rate: +((a.debt?.interest_rate ?? 0.055) * 100).toFixed(1),
+          market_rent_growth_pct: +((a.market_rent_growth_pct ?? 0.03) * 100).toFixed(1),
         });
       }
     } catch (err) {
@@ -289,6 +305,12 @@ export default function ProFormaPage() {
   const pricingOutput: PricingOutput = version.pricing_output;
   const scenarios = version.assumptions?.scenarios;
   const targetIrr = project.target_irr;
+
+  // Debt data from underwriting output
+  const uo = deal.underwriting_output;
+  const debtSchedule: DebtScheduleYear[] = uo?.debt_schedule ?? [];
+  const debtSummary: DebtSummary | null = uo?.debt_summary ?? null;
+  const hasDebt = debtSchedule.length > 0;
 
   // Merge rent schedule and cash flow by year for the combined table
   const mergedYears = cashFlow.map((cf) => {
@@ -608,10 +630,31 @@ export default function ProFormaPage() {
                     muted
                   />
 
+                  {/* Reimbursements (Phase 3) */}
+                  {mergedYears.some((row) => (row.cam_reimbursement ?? 0) > 0 || (row.tax_reimbursement ?? 0) > 0 || (row.insurance_reimbursement ?? 0) > 0) && (
+                    <>
+                      <ProFormaRow
+                        label="CAM Reimbursement"
+                        values={mergedYears.map((row) => row.cam_reimbursement ?? 0)}
+                        indent
+                      />
+                      <ProFormaRow
+                        label="Tax Reimbursement"
+                        values={mergedYears.map((row) => row.tax_reimbursement ?? 0)}
+                        indent
+                      />
+                      <ProFormaRow
+                        label="Insurance Reimbursement"
+                        values={mergedYears.map((row) => row.insurance_reimbursement ?? 0)}
+                        indent
+                      />
+                    </>
+                  )}
+
                   {/* Total Revenue subtotal */}
                   <ProFormaRow
                     label="Gross Potential Revenue"
-                    values={mergedYears.map((row) => row.scheduled_rent)}
+                    values={mergedYears.map((row) => (row.scheduled_rent ?? 0) + (row.total_reimbursements ?? 0))}
                     subtotal
                     topBorder
                   />
@@ -656,6 +699,16 @@ export default function ProFormaPage() {
                     indent
                   />
 
+                  {/* Scheduled CapEx (Phase 5) */}
+                  {mergedYears.some((row) => (row.scheduled_capex ?? 0) > 0) && (
+                    <ProFormaRow
+                      label="Scheduled CapEx"
+                      values={mergedYears.map((row) => row.scheduled_capex ?? 0)}
+                      negative
+                      indent
+                    />
+                  )}
+
                   {/* Leasing Costs (TI + LC) */}
                   <ProFormaRow
                     label="Leasing Costs (TI + LC)"
@@ -695,6 +748,37 @@ export default function ProFormaPage() {
                       </td>
                     ))}
                   </tr>
+
+                  {/* ── DEBT SERVICE SECTION ──────────────────── */}
+                  {hasDebt && (
+                    <>
+                      <tr className="bg-purple-50/50 dark:bg-purple-950/15">
+                        <td colSpan={mergedYears.length + 1} className="px-4 py-2 font-bold text-xs uppercase tracking-widest text-purple-700 dark:text-purple-400 sticky left-0 bg-purple-50/50 dark:bg-purple-950/15 z-10">
+                          Debt Service
+                        </td>
+                      </tr>
+                      <ProFormaRow
+                        label="Debt Service"
+                        values={mergedYears.map((row) => row.debt_service ?? 0)}
+                        negative
+                        indent
+                      />
+                      <ProFormaRow
+                        label="Cash After Debt Service"
+                        values={mergedYears.map((row) => row.cash_after_debt_service ?? 0)}
+                        bold
+                        topBorder
+                        highlight="blue"
+                      />
+                      <ProFormaRow
+                        label="DSCR"
+                        values={mergedYears.map((row) => row.dscr ?? null)}
+                        format="currency-compact"
+                        indent
+                        muted
+                      />
+                    </>
+                  )}
 
                   {/* ── RETURNS SECTION ─────────────────────────────────── */}
                   <tr className="bg-gray-50/60 dark:bg-gray-900/20">
@@ -764,8 +848,42 @@ export default function ProFormaPage() {
                 value={formatIrr(exitAnalysis.unleveraged_irr)}
                 highlight
               />
+              {hasDebt && exitAnalysis.leveraged_irr != null && (
+                <ExitMetric
+                  label="Leveraged IRR"
+                  value={formatIrr(exitAnalysis.leveraged_irr)}
+                  highlight
+                />
+              )}
+              {hasDebt && exitAnalysis.leveraged_equity_multiple != null && (
+                <ExitMetric
+                  label="Leveraged EM"
+                  value={formatMultiple(exitAnalysis.leveraged_equity_multiple)}
+                  highlight
+                />
+              )}
             </div>
           </section>
+
+          {/* Debt Summary */}
+          {hasDebt && debtSummary && (
+            <section className="bg-card border border-border rounded-xl shadow-sm">
+              <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-accent" />
+                <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">
+                  Debt Summary
+                </h2>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-x divide-border">
+                <ExitMetric label="Loan Amount" value={formatCurrency(debtSummary.loan_amount_final)} />
+                <ExitMetric label="Equity Required" value={formatCurrency(debtSummary.equity_required)} />
+                <ExitMetric label="LTV" value={formatPercent(debtSummary.ltv_actual, 1)} />
+                <ExitMetric label="Debt Yield" value={formatPercent(debtSummary.debt_yield, 1)} />
+                <ExitMetric label="Leveraged IRR" value={formatIrr(debtSummary.leveraged_irr)} highlight />
+                <ExitMetric label="Leveraged EM" value={formatMultiple(debtSummary.leveraged_equity_multiple)} highlight />
+              </div>
+            </section>
+          )}
 
           {/* ────────────────────────────────────────────────────────────── */}
           {/* 4. Sensitivity Grid (Heat-Mapped)                             */}
@@ -778,29 +896,35 @@ export default function ProFormaPage() {
                   Sensitivity Analysis
                 </h2>
               </div>
-              <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+              <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5 flex-wrap gap-0.5">
                 <button
                   onClick={() => setSensitivityMode("irr")}
-                  className={cn(
-                    "px-3 py-1 text-xs font-medium rounded-md transition-colors",
-                    sensitivityMode === "irr"
-                      ? "bg-white dark:bg-gray-700 text-foreground shadow-sm"
-                      : "text-muted hover:text-foreground"
+                  className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                    sensitivityMode === "irr" ? "bg-white dark:bg-gray-700 text-foreground shadow-sm" : "text-muted hover:text-foreground"
                   )}
-                >
-                  IRR
-                </button>
+                >IRR</button>
                 <button
                   onClick={() => setSensitivityMode("em")}
-                  className={cn(
-                    "px-3 py-1 text-xs font-medium rounded-md transition-colors",
-                    sensitivityMode === "em"
-                      ? "bg-white dark:bg-gray-700 text-foreground shadow-sm"
-                      : "text-muted hover:text-foreground"
+                  className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                    sensitivityMode === "em" ? "bg-white dark:bg-gray-700 text-foreground shadow-sm" : "text-muted hover:text-foreground"
                   )}
-                >
-                  Equity Multiple
-                </button>
+                >EM</button>
+                {hasDebt && (
+                  <>
+                    <button
+                      onClick={() => setSensitivityMode("lev_irr")}
+                      className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                        sensitivityMode === "lev_irr" ? "bg-white dark:bg-gray-700 text-foreground shadow-sm" : "text-muted hover:text-foreground"
+                      )}
+                    >Lev. IRR</button>
+                    <button
+                      onClick={() => setSensitivityMode("lev_em")}
+                      className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                        sensitivityMode === "lev_em" ? "bg-white dark:bg-gray-700 text-foreground shadow-sm" : "text-muted hover:text-foreground"
+                      )}
+                    >Lev. EM</button>
+                  </>
+                )}
               </div>
             </div>
             <div className="overflow-x-auto p-5">
@@ -828,18 +952,22 @@ export default function ProFormaPage() {
                       </td>
                       {(sensitivityMode === "irr"
                         ? sensitivityGrid.irr_matrix[rowIdx]
-                        : sensitivityGrid.em_matrix[rowIdx]
+                        : sensitivityMode === "em"
+                        ? sensitivityGrid.em_matrix[rowIdx]
+                        : sensitivityMode === "lev_irr"
+                        ? (sensitivityGrid.leveraged_irr_matrix?.[rowIdx] ?? sensitivityGrid.irr_matrix[rowIdx])
+                        : (sensitivityGrid.leveraged_em_matrix?.[rowIdx] ?? sensitivityGrid.em_matrix[rowIdx])
                       ).map((val, colIdx) => (
                         <td key={colIdx} className="px-1 py-1 text-center">
                           <div
                             className={cn(
                               "rounded-md px-2 py-1.5 text-xs font-semibold tabular-nums",
-                              sensitivityMode === "irr"
+                              (sensitivityMode === "irr" || sensitivityMode === "lev_irr")
                                 ? irrHeatColor(val, targetIrr)
                                 : emHeatColor(val)
                             )}
                           >
-                            {sensitivityMode === "irr"
+                            {(sensitivityMode === "irr" || sensitivityMode === "lev_irr")
                               ? formatIrr(val)
                               : formatMultiple(val)}
                           </div>

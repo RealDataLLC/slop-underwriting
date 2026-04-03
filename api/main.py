@@ -77,6 +77,19 @@ class AssumptionOverrideRequest(BaseModel):
     vacancy_rate: float = 0.0
     mgmt_fee_pct: float = 0.0
     capex_per_sf: float = 0.0
+    # Re-leasing
+    releasing: dict | None = None
+    # Phase 2: Debt
+    debt: dict | None = None  # DebtAssumptions: {loan_enabled, ltv_pct, dscr_constraint, interest_rate, amortization_years, loan_term_years, io_period_years, dscr_covenant}
+    # Phase 3: Market Rent Growth + Expense Reimbursements
+    market_rent_growth_pct: float | None = None
+    expense_reimbursements: dict | None = None  # {cam_psf, tax_psf, insurance_psf, cam_growth_pct, tax_growth_pct, insurance_growth_pct, admin_fee_pct}
+    # Phase 4: Absorption
+    absorption: dict | None = None  # {enabled, vacant_suites, stabilized_occupancy_pct}
+    # Phase 5: Scheduled CapEx
+    scheduled_capex: list[dict] | None = None  # [{description, year, cost}]
+    # Multi-tenant re-leasing
+    releasing_per_tenant: dict | None = None  # {tenant_id: {downtime_months, ...}}
 
 
 # ─── Smart Upload ─────────────────────────────────────────────────────────────
@@ -419,6 +432,8 @@ async def _run_underwriting_pipeline(deal_id: str):
             "risk_score": risk_data.get("risk_score") if isinstance(risk_data, dict) else None,
             "risk_flags": risk_data.get("risk_flags", []) if isinstance(risk_data, dict) else [],
             "recommendation": recommendation_str,
+            "debt_schedule": output.get("debt_schedule"),
+            "debt_summary": output.get("debt_summary"),
         }).execute()
 
         # Build a normalized output for the deal record
@@ -434,6 +449,10 @@ async def _run_underwriting_pipeline(deal_id: str):
             "risk_flags": risk_data.get("risk_flags", []) if isinstance(risk_data, dict) else [],
             "recommendation": recommendation_str,
             "summary": output.get("summary"),
+            "debt_schedule": output.get("debt_schedule"),
+            "debt_summary": output.get("debt_summary"),
+            "walt": output.get("walt"),
+            "tenant_count": output.get("tenant_count"),
         }
 
         # Update deal
